@@ -1,214 +1,200 @@
 import { useEffect, useState } from "react";
-import { ref, update, push, onValue } from "firebase/database";
+import { FaTimes } from "react-icons/fa";
+import { ref, push, set, update, get } from "firebase/database";
 import { db } from "../../firebase";
-import { useToast } from "../Toast/useToast";
 
-const overlayStyle = {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 50,
-};
+const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
+  const [method, setMethod] = useState(null); // 'upi' | 'card' | 'cash'
+  const [loading, setLoading] = useState(false);
 
-const modalStyle = {
-    width: "100%",
-    maxWidth: 420,
-    background: "#fff",
-    borderRadius: 12,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.15)",
-    overflow: "hidden",
-};
+  // UPI
+  const [upiId, setUpiId] = useState("");
 
-const headerStyle = {
-    padding: "12px 16px",
-    borderBottom: "1px solid #e5e7eb",
-    fontWeight: 700,
-};
+  // Card
+  const [cardName, setCardName] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCVV, setCardCVV] = useState("");
 
-const bodyStyle = {
-    padding: 16,
-};
+  // compute default total
+  const defaultAmount = Number(dues) > 0
+    ? Number(dues)
+    : Number(profile?.maintenance || 0) + Number(profile?.water || 0) + Number(profile?.sinking || 0);
 
-const rowStyle = { display: "flex", gap: 8, marginBottom: 12 };
+  // User-editable payment amount
+  const [paymentAmount, setPaymentAmount] = useState(defaultAmount);
 
-const inputStyle = {
-    flex: 1,
-    padding: "10px 12px",
-    borderRadius: 8,
-    border: "1px solid #e5e7eb",
-};
-
-const footerStyle = {
-    padding: 16,
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 8,
-    borderTop: "1px solid #e5e7eb",
-};
-
-const btnBase = {
-    padding: "10px 14px",
-    borderRadius: 8,
-    border: "1px solid transparent",
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-};
-
-const btnPrimary = {
-    ...btnBase,
-    background: "#2563eb",
-    color: "#fff",
-};
-
-const btnSecondary = {
-    ...btnBase,
-    background: "#f1f5f9",
-    color: "#0f172a",
-};
-
-function genReceiptId() {
-  return `#${Math.floor(100000 + Math.random() * 900000)}`;
-}
-
-export default function PayModal({ open, onClose, uid, profile, dues = 0, onSuccess }) {
-    const { push: pushToast } = useToast();
-    const [amount, setAmount] = useState(dues ? String(dues) : "");
-    const [method, setMethod] = useState("UPI");
-    const [submitting, setSubmitting] = useState(false);
-    const [config, setConfig] = useState(null);
-
-    // read maintenance config
-    useEffect(() => {
-        const off = onValue(ref(db, 'config/maintenance'), (snap) => setConfig(snap.val() || null));
-        return () => off();
-    }, []);
-
-    // derive allowance if late fee applies this period
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const period = `${yyyy}-${mm}`;
-    // prefer ISO date if present
-    let dueDay = Number(config?.dueDate);
-    if (config?.dueDateISO) {
-        const d = new Date(config.dueDateISO);
-        if (!isNaN(d)) dueDay = d.getDate();
+  useEffect(() => {
+    if (!open) {
+      setMethod(null);
+      setUpiId("");
+      setCardName(""); setCardNumber(""); setCardExpiry(""); setCardCVV("");
+      setLoading(false);
+      setPaymentAmount(defaultAmount);
+    } else {
+      // Ensure amount shown when modal opens reflects current defaults
+      setPaymentAmount(defaultAmount);
     }
-    const isLateNow = Number.isFinite(dueDay) && dueDay >= 1 && dueDay <= 31 ? today.getDate() > dueDay : false;
-    const cfgLateFee = Number(config?.lateFee || 0);
-    const shouldAddLateNow = isLateNow && cfgLateFee > 0 && Number(dues) > 0 && profile?.lateFeeAssessedOn !== period;
-    const allowedMax = Number(dues) + (shouldAddLateNow ? cfgLateFee : 0);
+  }, [open, defaultAmount]);
 
-    if (!open) return null;
+  const amount = Number(paymentAmount || 0);
 
-    const handleSubmit = async () => {
-        const amt = parseFloat(amount);
-        if (!Number.isFinite(amt) || amt <= 0) {
-        pushToast({ type: "error", title: "Enter a valid amount" });
-        return;
+  const validate = () => {
+    if (!method) return "Select a payment method.";
+    if (!paymentAmount || isNaN(Number(paymentAmount)) || Number(paymentAmount) <= 0) return "Enter a valid amount greater than 0.";
+    if (method === "upi") {
+      if (!upiId || !/^[\w.\-]{3,}@[\w]+$/.test(upiId.trim())) return "Enter a valid UPI ID (e.g. name@bank).";
     }
-
-    if (amt > allowedMax) {
-        pushToast({ type: "error", title: "Amount exceeds due", description: `Max payable is ₹${Number(allowedMax).toFixed(2)}` });
-        return;
+    if (method === "card") {
+      if (!cardName.trim()) return "Cardholder name is required.";
+      const num = cardNumber.replace(/\s+/g, "");
+      if (!/^\d{12,19}$/.test(num)) return "Enter a valid card number.";
+      if (!/^\d{2}\/\d{2}$/.test(cardExpiry)) return "Expiry must be MM/YY.";
+      if (!/^\d{3,4}$/.test(cardCVV)) return "Enter a valid CVV.";
     }
+    // cash needs no extra validation
+    return null;
+  };
 
-    if (!uid || !profile?.email) {
-        pushToast({ type: "error", title: "Missing user info" });
-        return;
-    }
+  const maskCard = (num) => {
+    const s = (num || "").replace(/\s+/g, "");
+    if (s.length <= 4) return s;
+    return "**** **** **** " + s.slice(-4);
+  };
 
-    setSubmitting(true);
+  const handlePay = async () => {
+    const err = validate();
+    if (err) return alert(err);
+
+    setLoading(true);
     try {
-        // compute if late fee applies (only once per month period)
-    const isLate = isLateNow;
-    const shouldAddLate = shouldAddLateNow;
+      const now = Date.now();
+      const receiptId = `RCPT-${now}-${Math.floor(Math.random()*9000+1000)}`;
 
-    // allocate payment to dues first, then to late fee (if assessed this transaction)
-    let remaining = amt;
-    const currentDues = Number(dues);
-    const afterDues = Math.max(0, currentDues - remaining);
-    remaining = Math.max(0, remaining - currentDues);
-    const feeAssessed = shouldAddLate ? cfgLateFee : 0;
-    const feeRemaining = Math.max(0, feeAssessed - remaining);
+      // determine previous due (if dues prop >0 use that, otherwise defaultAmount)
+      const prevDue = Number(dues) > 0 ? Number(dues) : defaultAmount;
+      const paid = Number(amount);
+      const remainingDue = Math.max(0, Number((prevDue - paid).toFixed(2)));
 
-    const newPaid = Number(profile?.paid || 0) + amt;
-    const newDues = afterDues + feeRemaining;
+      const payment = {
+        uid: uid || null,
+        email: profile?.email || null,
+        name: profile?.name || profile?.displayName || null,
+        amount: Number(paid),
+        method,
+        methodDetails:
+          method === "upi"
+            ? { upi: upiId.trim() }
+            : method === "card"
+            ? { name: cardName.trim(), card: maskCard(cardNumber) }
+            : { note: "Paid in cash" },
+        receipt: receiptId,
+        date: new Date().toLocaleDateString("en-IN"),
+        createdAt: now,
+        previousDue: Number(prevDue),
+        remainingDue: Number(remainingDue),
+      };
 
-    const updates = { dues: newDues, paid: newPaid };
-    if (shouldAddLate) updates.lateFeeAssessedOn = period;
-        // update user dues/paid (+ mark late fee assessed for this period)
-        await update(ref(db, `users/${uid}`), updates);
+      // write recent payment
+      const newRef = push(ref(db, "recentPayments"));
+      await set(newRef, payment);
 
-        const record = {
-            member: profile?.fullName || profile?.name || "Member",
-            flat: profile?.flatNumber || profile?.flat || "",
-            email: profile.email,
-            amount: amt,
-            lateFeeAddedToDues: shouldAddLate ? cfgLateFee : 0,
-            wasLatePayment: isLate,
-            date: new Date().toISOString().split("T")[0],
-            receipt: genReceiptId(),
-            method,
-            createdAt: Date.now(),
-        };
-        await push(ref(db, "recentPayments"), record);
+      // update user's dues in users node to remaining due
+      if (uid) {
+        await update(ref(db, `users/${uid}`), { dues: Number(remainingDue) });
+      }
 
-    pushToast({ type: "success", title: "Payment successful", description: `Paid ₹${amt.toFixed(2)}${shouldAddLate ? ` • Late fee of ₹${cfgLateFee.toFixed(2)} added to dues` : ''}` });
-        onSuccess?.(record);
-        onClose?.();
-        } catch (err) {
-        pushToast({ type: "error", title: "Payment failed", description: err.message });
-        } finally {
-        setSubmitting(false);
-        }
-    };
+      setLoading(false);
+      onSuccess && onSuccess(payment);
+      onClose && onClose();
+    } catch (e) {
+      setLoading(false);
+      alert("Payment failed: " + (e?.message || e));
+    }
+  };
 
-    return (
-        <div style={overlayStyle} onClick={onClose}>
-        <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-            <div style={headerStyle}>Pay maintenance</div>
-            <div style={bodyStyle}>
-            <div style={{ marginBottom: 8, color: "#475569" }}>
-                Due: <strong>₹{Number(dues).toFixed(2)}</strong>
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg bg-white rounded shadow-lg overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="font-semibold">Make Payment — ₹{Number(amount).toLocaleString("en-IN")}</div>
+          <button onClick={onClose} className="text-gray-600"><FaTimes /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="flex gap-2">
+            <button onClick={() => setMethod("upi")} className={`flex-1 p-2 rounded border ${method==="upi" ? "bg-blue-600 text-white" : "bg-white"}`}>UPI</button>
+            <button onClick={() => setMethod("card")} className={`flex-1 p-2 rounded border ${method==="card" ? "bg-blue-600 text-white" : "bg-white"}`}>Card</button>
+            <button onClick={() => setMethod("cash")} className={`flex-1 p-2 rounded border ${method==="cash" ? "bg-blue-600 text-white" : "bg-white"}`}>Cash</button>
+          </div>
+
+          {/* Amount input */}
+          <div>
+            <label className="text-sm font-medium">Amount to Pay</label>
+            <input
+              value={paymentAmount}
+              onChange={(e) => {
+                // allow digits and dot
+                const v = e.target.value.replace(/[^\d.]/g, "");
+                setPaymentAmount(v);
+              }}
+              placeholder={String(defaultAmount)}
+              className="w-full p-2 border rounded"
+            />
+          </div>
+
+          {method === "upi" && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">UPI ID</label>
+              <input
+                value={upiId}
+                onChange={(e) => setUpiId(e.target.value)}
+                placeholder="example@bank"
+                className="w-full p-2 border rounded"
+              />
+              <div className="text-xs text-gray-500">After entering your UPI ID, click Pay to record the payment. (This UI records the payment; integrate a gateway for live UPI flow.)</div>
             </div>
-                        {shouldAddLateNow && (
-                            <div style={{ marginBottom: 8, fontSize: 12, color: '#b45309', background:'#fffbeb', border:'1px solid #f59e0b', padding:'8px 10px', borderRadius:8 }}>
-                                A late fee of ₹{cfgLateFee.toFixed(2)} will be added this period. Max payable: ₹{Number(allowedMax).toFixed(2)}
-                            </div>
-                        )}
-            <div style={rowStyle}>
-                <input
-                style={inputStyle}
-                type="number"
-                min={0}
-                max={allowedMax || undefined}
-                step="0.01"
-                placeholder="Amount"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                />
+          )}
+
+          {method === "card" && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Cardholder Name</label>
+              <input value={cardName} onChange={(e) => setCardName(e.target.value)} className="w-full p-2 border rounded" />
+
+              <label className="text-sm font-medium">Card Number</label>
+              <input value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} placeholder="1234 5678 9012 3456" className="w-full p-2 border rounded" />
+
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-sm font-medium">Expiry (MM/YY)</label>
+                  <input value={cardExpiry} onChange={(e) => setCardExpiry(e.target.value)} placeholder="MM/YY" className="w-full p-2 border rounded" />
+                </div>
+                <div className="w-32">
+                  <label className="text-sm font-medium">CVV</label>
+                  <input value={cardCVV} onChange={(e) => setCardCVV(e.target.value)} placeholder="123" className="w-full p-2 border rounded" />
+                </div>
+              </div>
             </div>
-            <div style={rowStyle}>
-                <select style={inputStyle} value={method} onChange={(e) => setMethod(e.target.value)}>
-                <option>UPI</option>
-                <option>Card</option>
-                <option>Cash</option>
-                </select>
+          )}
+
+          {method === "cash" && (
+            <div className="text-sm text-gray-700">
+              Pay the amount in cash to the society office/treasurer and click Pay to record the transaction.
             </div>
-            </div>
-            <div style={footerStyle}>
-            <button style={btnSecondary} onClick={onClose} disabled={submitting}>Cancel</button>
-            <button style={btnPrimary} onClick={handleSubmit} disabled={submitting}>
-                {submitting ? "Processing…" : "Pay now"}
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-2 rounded border">Cancel</button>
+            <button onClick={handlePay} disabled={loading} className="px-4 py-2 rounded bg-blue-600 text-white">
+              {loading ? "Processing..." : `Pay ₹${Number(amount).toLocaleString("en-IN")}`}
             </button>
-            </div>
+          </div>
         </div>
-        </div>
-    );
-}
+      </div>
+    </div>
+  );
+};
+
+export default PayModal;

@@ -98,7 +98,8 @@ const MemberDashboard = () => {
 
     const lastPayment = useMemo(() => (payments.length ? payments[payments.length - 1] : null), [payments]);
     const dues = Number(profile?.dues || 0);
-    const isClear = dues <= 0;
+    const hasDuesRecord = profile?.dues !== undefined && profile?.dues !== null;
+    const isClear = hasDuesRecord && dues <= 0;
     const formatCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     // Load maintenance config for breakdown/due date
@@ -211,62 +212,122 @@ const MemberDashboard = () => {
 
     const handlePayNow = () => setPayOpen(true);
 
-    const handleDownloadReceipt = () => {
-        if (!lastPayment) {
-            pushToast({ type: "info", title: "No receipt", description: "No payments yet" });
+    const handleDownloadReceipt = (payment = null) => {
+        const p = payment || lastPayment;
+        if (!p) {
+            pushToast({ title: "No receipt available", tone: "critical" });
             return;
         }
-        openReceiptPrintWindow(lastPayment, profile);
-        pushToast({ type: "success", title: "Receipt opened", description: `${lastPayment.receipt}` });
+
+        const name = p.name || profile?.name || profile?.displayName || "N/A";
+        const flat = profile?.flatNumber || profile?.flat || "N/A";
+        const receipt = p.receipt || `RCPT-${p.createdAt || Date.now()}`;
+        const paid = Number(p.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const method = (p.method || "N/A").toUpperCase();
+        const prev = Number(p.previousDue ?? profile?.dues ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const remaining = Number(p.remainingDue ?? profile?.dues ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const date = p.date || new Date().toLocaleDateString("en-IN");
+
+        const html = `<!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>FlatMate Receipt - ${receipt}</title>
+          <style>
+            body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:24px}
+            .container{max-width:700px;margin:0 auto;border:1px solid #e6edf3;padding:20px;border-radius:6px}
+            .header{display:flex;align-items:center;gap:12px}
+            .logo svg{width:140px;height:auto;display:block}
+            h1{margin:0;font-size:20px}
+            .meta{color:#555;font-size:13px}
+            table{width:100%;margin-top:18px;border-collapse:collapse}
+            td{padding:10px;border-bottom:1px solid #f1f5f9}
+            td.label{width:40%;font-weight:600;color:#333}
+            .note{margin-top:18px;color:#555;font-size:13px}
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <div class="logo" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" role="img" aria-label="FlatMate Logo">
+                  <rect rx="12" width="400" height="120" fill="#2563eb"/>
+                  <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="42" fill="#fff">FlatMate</text>
+                </svg>
+              </div>
+              <div>
+                <h1>Payment Receipt</h1>
+                <div class="meta">FlatMate — Society Maintenance</div>
+              </div>
+            </div>
+
+            <table>
+              <tr><td class="label">Receipt No:</td><td>${receipt}</td></tr>
+              <tr><td class="label">Name:</td><td>${name}</td></tr>
+              <tr><td class="label">Flat:</td><td>${flat}</td></tr>
+              <tr><td class="label">Date:</td><td>${date}</td></tr>
+              <tr><td class="label">Previous Due:</td><td>₹${prev}</td></tr>
+              <tr><td class="label">Amount Paid:</td><td>₹${paid}</td></tr>
+              <tr><td class="label">Payment Method:</td><td>${method}</td></tr>
+              <tr><td class="label">Remaining Due:</td><td>₹${remaining}</td></tr>
+            </table>
+
+            <p class="note">This is a system generated receipt from FlatMate.</p>
+          </div>
+        </body>
+        </html>`;
+
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `FlatMate_receipt_${receipt}.html`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // revoke after a short delay to ensure download started
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
 
         //
         return (
-            <Fragment>
-                <div className="min-h-screen flex flex-col bg-[#0f172a]">
-                    <MemberHeader profile={profile} />
-                    <main className="flex-1">
-                        <div className="max-w-6xl mx-auto px-4 py-6">
-                            {/* Tabs */}
-                                            <div className="flex items-center gap-2 text-sm mb-5">
-                                                <button onClick={() => setActiveTab('Dashboard')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Dashboard' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                                                    <FaBuilding />
-                                                    <span>Dashboard</span>
-                                                </button>
-                                                <button onClick={() => setActiveTab('Bills')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Bills' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                                                    <FaFileInvoiceDollar />
-                                                    <span>Bills</span>
-                                                </button>
-                                                <button onClick={() => setActiveTab('History')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='History' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                                                    <FaHistory />
-                                                    <span>History</span>
-                                                </button>
-                                                <button onClick={() => setActiveTab('Documents')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Documents' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                                                    <FaFolder />
-                                                    <span>Documents</span>
-                                                </button>
-                                                <button onClick={() => setActiveTab('Chat')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Chat' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                                                    <FaComments />
-                                                    <span>Chat</span>
-                                                </button>
-                                                <button onClick={() => setActiveTab('Support')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Support' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                                                    <FaLifeRing />
-                                                    <span>Support</span>
-                                                </button>
-                                            </div>
+        <Fragment>
+            <div className="min-h-screen flex flex-col bg-[#0f172a]">
+                <MemberHeader profile={profile} />
+                <main className="flex-1">
+                    <div className="max-w-6xl mx-auto px-4 py-6">
+                        {/* Tabs */}
+                                        <div className="flex items-center gap-2 text-sm mb-5">
+                                            <button onClick={() => setActiveTab('Dashboard')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Dashboard' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+                                                <FaBuilding />
+                                                <span>Dashboard</span>
+                                            </button>
+                                            <button onClick={() => setActiveTab('Bills')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Bills' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+                                                <FaFileInvoiceDollar />
+                                                <span>Bills</span>
+                                            </button>
+                                            <button onClick={() => setActiveTab('History')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='History' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+                                                <FaHistory />
+                                                <span>History</span>
+                                            </button>
+                                            <button onClick={() => setActiveTab('Documents')} className={`flex items-center gap-2 px-3 py-1 rounded ${activeTab==='Documents' ? 'bg-[#374151] text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+                                                <FaFolder />
+                                                <span>Documents</span>
+                                            </button>
+                                        </div>
 
-                                            {/* Helper components */}
-                                            {/* Current Bill */}
-                                            <div className="hidden" />
-                                            {/* Content by tab */}
-                                            {activeTab === 'Dashboard' && (
-                                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                                                    <div className="lg:col-span-2 space-y-4">
-                                                        <div className="rounded-md p-4 shadow border border-[#374151] text-white bg-[#1f2937]">
+                                        {/* Helper components */}
+                                        {/* Current Bill */}
+                                        <div className="hidden" />
+                                        {/* Content by tab */}
+                                        {activeTab === 'Dashboard' && (
+                                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                                <div className="lg:col-span-2 space-y-4">
+                                                    <div className="rounded-md p-4 shadow border border-[#374151] text-white bg-[#1f2937]">
                                         <div className="flex items-center justify-between mb-3">
                                             <div className="font-semibold">Current Maintenance Bill</div>
                                             <div className="flex items-center gap-3">
-                                                <span className={`px-2 py-1 text-xs rounded-full font-semibold ${isClear ? 'bg-green-600' : 'bg-amber-600'}`}>
+                                                <span className={`px-2 py-1 text-xs rounded-full font-semibold ${isClear ? 'bg-green-600' : 'bg-red-600'}`}>
                                                                         {isClear ? 'Paid' : 'Unpaid'}
                                                 </span>
                                                 <button
@@ -324,13 +385,12 @@ const MemberDashboard = () => {
                                                         <th className="p-2">Amount</th>
                                                         <th className="p-2">Status</th>
                                                         <th className="p-2">Receipt</th>
-                                                        <th className="p-2">Action</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="text-gray-100">
                                                     {payments.length === 0 ? (
                                                         <tr>
-                                                            <td colSpan={5} className="p-4 text-center text-gray-400">No payments yet</td>
+                                                            <td colSpan={4} className="p-4 text-center text-gray-400">No payments yet</td>
                                                         </tr>
                                                     ) : (
                                                         payments.map((p) => (
@@ -338,16 +398,7 @@ const MemberDashboard = () => {
                                                                 <td className="p-2">{p.date}</td>
                                                                 <td className="p-2">{formatCurrency(p.amount)}</td>
                                                                 <td className="p-2"><span className="px-2 py-1 text-xs rounded-full font-semibold bg-green-600">Paid</span></td>
-                                                                <td className="p-2">{p.receipt}</td>
-                                                                <td className="p-2">
-                                                                    <button
-                                                                        className="inline-flex items-center gap-1 text-blue-500 hover:underline"
-                                                                        onClick={() => openReceiptPrintWindow(p, profile)}
-                                                                        title="Download receipt"
-                                                                    >
-                                                                        <FaCloudDownloadAlt /> Download
-                                                                    </button>
-                                                                </td>
+                                                                <td className="p-2 text-gray-200">{p.receipt}</td>
                                                             </tr>
                                                         ))
                                                     )}
@@ -375,9 +426,18 @@ const MemberDashboard = () => {
                                                 <FaDownload />
                                                 <span className="text-sm">Download Receipts</span>
                                             </button>
-                                            <button onClick={() => pushToast({ type: 'info', title: 'Query', description: 'Raise query coming soon' })} className="h-20 rounded-md bg-amber-600 hover:bg-amber-700 text-white flex flex-col items-center justify-center gap-2">
-                                                <FaInfoCircle />
-                                                <span className="text-sm">Raise Query</span>
+                                            <button onClick={() => {
+                                                const email = (typeof config === 'object' && config && config.contactEmail) ? config.contactEmail : '';
+                                                if (email) {
+                                                    // Open Gmail compose with pre-filled recipient
+                                                    const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
+                                                    window.open(gmailComposeUrl, '_blank');
+                                                } else {
+                                                    pushToast({ type: 'info', title: 'Contact Admin', description: 'Admin email not configured yet.' });
+                                                }
+                                            }} className="h-20 rounded-md bg-amber-600 hover:bg-amber-700 text-white flex flex-col items-center justify-center gap-2">
+                                                <FaEnvelope />
+                                                <span className="text-sm">Contact Admin</span>
                                             </button>
                                         </div>
                                     </div>
@@ -413,31 +473,7 @@ const MemberDashboard = () => {
                                         </div>
                                     </div>
 
-                                                        {/* Support */}
-                                                        <div className="rounded-md shadow p-4 text-white bg-[#1f2937] border border-[#374151]">
-                                                            <div className="text-sm font-medium mb-3">Support</div>
-                                                            <div className="flex flex-col gap-3">
-                                                                                        <button
-                                                                                            onClick={() => setChatOpen(true)}
-                                                                    className="h-12 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium flex items-center justify-center gap-2"
-                                                                >
-                                                                    <FaRobot /> Chat with AI Assistant
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        const email = (typeof config === 'object' && config && config.contactEmail) ? config.contactEmail : '';
-                                                                        if (email) {
-                                                                            window.location.href = `mailto:${email}`;
-                                                                        } else {
-                                                                            pushToast({ type: 'info', title: 'Contact Admin', description: 'Admin email not configured yet.' });
-                                                                        }
-                                                                    }}
-                                                                    className="h-12 rounded-md bg-[#2a3340] hover:bg-[#222a36] text-gray-100 font-medium flex items-center justify-center gap-2"
-                                                                >
-                                                                    <FaEnvelope /> Contact Admin
-                                                                </button>
-                                                            </div>
-                                                        </div>
+
                                                     </div>
                                                 </div>
                                                 )}
@@ -449,7 +485,7 @@ const MemberDashboard = () => {
                                                                 <div className="flex items-center justify-between mb-3">
                                                                     <div className="font-semibold">Current Maintenance Bill</div>
                                                                     <div className="flex items-center gap-3">
-                                                                        <span className={`px-2 py-1 text-xs rounded-full font-semibold ${isClear ? 'bg-green-600' : 'bg-amber-600'}`}>{isClear ? 'Paid' : 'Unpaid'}</span>
+                                                                        <span className={`px-2 py-1 text-xs rounded-full font-semibold ${isClear ? 'bg-green-600' : 'bg-red-600'}`}>{isClear ? 'Paid' : 'Unpaid'}</span>
                                                                         <button disabled={isClear} onClick={handlePayNow} className={`inline-flex items-center gap-2 px-4 py-2 rounded-md ${isClear ? 'bg-[#374151] cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white`}>
                                                                             <FaCreditCard /> Pay Now
                                                                         </button>
@@ -493,12 +529,11 @@ const MemberDashboard = () => {
                                                                                 <th className="p-2">Amount</th>
                                                                                 <th className="p-2">Status</th>
                                                                                 <th className="p-2">Receipt</th>
-                                                                                <th className="p-2">Action</th>
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody className="text-gray-100">
                                                                             {payments.length === 0 ? (
-                                                                                <tr><td colSpan={5} className="p-4 text-center text-gray-400">No payments yet</td></tr>
+                                                                                <tr><td colSpan={4} className="p-4 text-center text-gray-400">No payments yet</td></tr>
                                                                             ) : (
                                                                                 payments.map((p) => (
                                                                                     <tr key={p.id} className="border-t border-[#374151] hover:bg-[#2d3748]">
@@ -506,7 +541,6 @@ const MemberDashboard = () => {
                                                                                         <td className="p-2">{formatCurrency(p.amount)}</td>
                                                                                         <td className="p-2"><span className="px-2 py-1 text-xs rounded-full font-semibold bg-green-600">Paid</span></td>
                                                                                         <td className="p-2">{p.receipt}</td>
-                                                                                        <td className="p-2"><button className="inline-flex items-center gap-1 text-blue-500 hover:underline" onClick={() => openReceiptPrintWindow(p, profile)} title="Download receipt"><FaCloudDownloadAlt /> Download</button></td>
                                                                                     </tr>
                                                                                 ))
                                                                             )}
@@ -543,16 +577,7 @@ const MemberDashboard = () => {
                                                                     </div>
                                                                 )}
 
-                                                                {['Chat','Support'].includes(activeTab) && (
-                                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                                                        <div className="lg:col-span-2 space-y-4">
-                                                            <div className="rounded-md shadow p-6 text-white bg-[#1f2937] border border-[#374151]">
-                                                                <div className="text-sm font-medium mb-2">{activeTab}</div>
-                                                                <div className="text-sm text-gray-300">This section is coming soon.</div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
+                
 
                                                 <div className="mt-8" />
                         </div>
@@ -569,7 +594,6 @@ const MemberDashboard = () => {
                         pushToast({ type: 'success', title: 'Payment recorded', description: `Receipt ${rec.receipt}` });
                     }}
                 />
-                    <SupportChatModal uid={uid} open={chatOpen} onClose={() => setChatOpen(false)} />
             </Fragment>
         );
 };

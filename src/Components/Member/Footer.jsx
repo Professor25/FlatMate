@@ -7,7 +7,7 @@ const Footer = () => {
         <div className="flex gap-4 text-lg">
         <FaQuestionCircle className="hover:text-white cursor-pointer" />
         <FaEnvelope className="hover:text-white cursor-pointer" />
-        <FaShieldAlt className="hover:text-white cursor-pointer" />
+        {/* <FaShieldAlt className="hover:text-white cursor-pointer" /> */}
         </div>
     </footer>
     );

@@ -1,4 +1,4 @@
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { useState, useEffect } from 'react';
 import { FaEnvelope, FaLock, FaSignInAlt, FaUser, FaUserShield } from 'react-icons/fa';
@@ -12,7 +12,17 @@ const LoginPage = () => {
     const [loginData, setLoginData] = useState({ email: '', password: '' });
     const [activeTab, setActiveTab] = useState("admin");
     const [isDarkMode, setIsDarkMode] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
+
+    const switchTab = (tab) => {
+        setActiveTab(tab);
+        if (!rememberMe) {
+            setLoginData({ email: '', password: '' });
+        } else {
+            setLoginData(prev => ({ ...prev, password: '' }));
+        }
+    };
 
     useEffect(() => {
         const savedEmail = localStorage.getItem("rememberedEmail");
@@ -33,6 +43,7 @@ const LoginPage = () => {
 
     const handleLogin = async (e) => {
         e.preventDefault();
+        setLoading(true);
         try {
             const userCredential = await signInWithEmailAndPassword(auth, loginData.email, loginData.password);
             const uid = userCredential.user.uid;
@@ -40,7 +51,16 @@ const LoginPage = () => {
             const roleSnap = await get(ref(db, `users/${uid}/role`));
             const role = roleSnap.val();
 
-            if (!role) throw new Error("No role set in database");
+            if (!role) {
+                await signOut(auth);
+                throw new Error("No role set in database");
+            }
+
+            // Check if the selected login tab matches the user's actual role
+            if (activeTab !== role) {
+                await signOut(auth);
+                throw new Error(`This account is registered as an ${role}. Please login using the ${role} tab.`);
+            }
 
             if (rememberMe) {
                 localStorage.setItem("rememberedEmail", loginData.email);
@@ -54,6 +74,8 @@ const LoginPage = () => {
             navigate(role === "admin" ? "/admin" : "/member");
         } catch (error) {
             alert("Login failed: " + error.message);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -73,7 +95,7 @@ const LoginPage = () => {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900 transition-colors duration-300">
-            <Motion.button
+            {/* <Motion.button
                 whileTap={{ scale: 0.95 }}
                 whileHover={{ scale: 1.05 }}
                 onClick={toggleDarkMode}
@@ -81,15 +103,18 @@ const LoginPage = () => {
                 className="absolute top-4 right-4 px-4 py-2 bg-transparent dark:bg-gray-700 text-gray-800 dark:text-white rounded"
             >
                 {isDarkMode ? "🔆 Light Mode" : "🌙 Dark Mode"}
-            </Motion.button>
+            </Motion.button> */}
 
             <Motion.form
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.35, type: "easeOut" }}
                 onSubmit={handleLogin}
+                autoComplete="off"
                 className="bg-[#1e293b] text-white p-8 rounded-xl shadow-xl w-full max-w-md"
             >
+                <input aria-hidden="true" style={{display:'none'}} type="text" name="fake-username" autoComplete="username" />
+               <input aria-hidden="true" style={{display:'none'}} type="password" name="fake-password" autoComplete="current-password" />
                 <h1 className="text-2xl font-bold text-center mb-2">Society Maintenance</h1>
                 <p className="text-center mb-6 text-sm text-gray-300">
                     Manage your society maintenance with ease
@@ -101,7 +126,7 @@ const LoginPage = () => {
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         className={`flex items-center justify-center gap-2 flex-1 mr-2 py-2 rounded-md transition-colors ${activeTab === "member" ? "bg-blue-600" : "bg-gray-700"}`}
-                        onClick={() => setActiveTab("member")}
+                        onClick={() => switchTab("member")}
                     >
                         <FaUser /> Member Login
                     </Motion.button>
@@ -111,7 +136,7 @@ const LoginPage = () => {
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         className={`flex items-center justify-center gap-2 flex-1 py-2 rounded-md transition-colors ${activeTab === "admin" ? "bg-blue-600" : "bg-gray-700"}`}
-                        onClick={() => setActiveTab("admin")}
+                        onClick={() => switchTab("admin")}
                     >
                         <FaUserShield className="w-5" /> Admin Login
                     </Motion.button>
@@ -126,6 +151,7 @@ const LoginPage = () => {
                         placeholder="Enter your email"
                         value={loginData.email}
                         onChange={handleChange}
+                        autoComplete="nope"
                         className="w-full p-2 bg-transparent outline-none text-white placeholder-gray-400"
                     />
                 </div>
@@ -139,6 +165,7 @@ const LoginPage = () => {
                         placeholder="Enter your password"
                         value={loginData.password}
                         onChange={handleChange}
+                        autoComplete="new-password"
                         className="w-full p-2 bg-transparent outline-none text-white placeholder-gray-400"
                     />
                 </div>
@@ -165,9 +192,20 @@ const LoginPage = () => {
                     type="submit"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 w-full py-2 rounded-md font-semibold transition-colors"
+                    disabled={loading}
+                    aria-busy={loading}
+                    className={`flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 w-full py-2 rounded-md font-semibold transition-colors ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
-                    <FaSignInAlt /> Sign In
+                    <FaSignInAlt />
+                    <span>Sign In</span>
+
+                    {loading && (
+                        <Motion.div className="flex items-center ml-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
+                            <Motion.span className="w-2 h-2 bg-white rounded-full mr-1" animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 0.6, ease: "easeInOut", delay: 0 }} />
+                            <Motion.span className="w-2 h-2 bg-white rounded-full mr-1" animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 0.6, ease: "easeInOut", delay: 0.15 }} />
+                            <Motion.span className="w-2 h-2 bg-white rounded-full" animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 0.6, ease: "easeInOut", delay: 0.3 }} />
+                        </Motion.div>
+                    )}
                 </Motion.button>
 
                 <p className="text-center text-sm text-gray-300 mt-4">

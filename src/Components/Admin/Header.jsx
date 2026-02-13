@@ -112,13 +112,13 @@ export default function Header() {
             {/* Right section */}
             <div className="flex items-center gap-4 text-sm">
                 {/* Dark Mode Toggle */}
-                <button onClick={toggleDarkMode} title="Toggle Dark Mode">
+                {/* <button onClick={toggleDarkMode} title="Toggle Dark Mode">
                     {isDarkMode ? (
                         <FaSun className="cursor-pointer text-yellow-400 hover:text-white" />
                     ) : (
                         <FaMoon className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-white" />
                     )}
-                </button>
+                </button> */}
 
                 <FaBell className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-white" />
                 <FaUserCircle className="text-xl text-gray-700 dark:text-gray-300" />

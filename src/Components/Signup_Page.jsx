@@ -78,13 +78,6 @@ const SignupPage = () => {
                 await set(userRef, userData);
                 alert(`Signed up successfully as ${formData.role.toUpperCase()}`);
             }
-            await update(ref(db, `users/${userId}`), {
-                fullName: formData.fullName,
-                flatNumber: formData.flatNumber,
-                email: formData.email,
-                password: formData.password,
-                role: formData.role
-            });
         } catch (error) {
             // Handle duplicate email error
             if (error.code === "auth/email-already-in-use") {
@@ -98,15 +91,17 @@ const SignupPage = () => {
     return (
         <div className = "min-h-screen flex items-center justify-center bg-white dark:bg-gray-900 transition-colors duration-300">
         {/* Optional Dark Mode toggle button */}
-            <Motion.button
+            {/* <Motion.button
                 onClick = {toggleDarkMode}
                 whileTap = {{ scale: 0.95 }}
                 whileHover = {{ scale: 1.05 }}
                 className = "absolute top-4 right-4 px-4 py-2 bg-transparent  dark:bg-gray-700 text-gray-800 dark:text-white rounded"
             >{isDarkMode ? "🔆 Light Mode" : "🌙 Dark Mode"}
-            </Motion.button>
-            <form className = "bg-[#1e293b] text-white p-8 rounded-xl shadow-xl w-full max-w-md"
+            </Motion.button> */}
+            <form className = "bg-[#1e293b] text-white p-8 rounded-xl shadow-xl w-full max-w-md" autoComplete='off'
                 onSubmit = {handleSubmit}>
+                    <input aria-hidden="true" style={{display:'none'}} type="text" name="fake-username" autoComplete="username" />
+                    <input aria-hidden="true" style={{display:'none'}} type="password" name="fake-password" autoComplete="current-password" />
                     <h1 className= "text-2xl font-bold text-center mb-2">FlatMate</h1>
                     <p className = "text-center mb-6 text-sm text-gray-300">
                         Manage your society maintenance with ease
@@ -144,6 +139,7 @@ const SignupPage = () => {
                         <FaUser className = "text-gray-400" />
                         <input
                             type = "text"
+                            autoComplete='nope'
                             name = "fullName"
                             value = {formData.fullName}
                             onChange = {handleChange}
@@ -156,6 +152,7 @@ const SignupPage = () => {
                         <FaHome  className = "text-gray-400"/>
                         <input
                             type = "text"
+                            autoComplete='nope'
                             name = "flatNumber"
                             placeholder = "Enter your flat /house number"
                             value = {formData.flatNumber}
@@ -168,6 +165,7 @@ const SignupPage = () => {
                         <FaEnvelope  className = "text-gray-400"/>
                         <input
                         type = "email"
+                        autoComplete='nope'
                         name = "email"
                         placeholder = "Type your email"
                         value = {formData.email}
@@ -180,6 +178,7 @@ const SignupPage = () => {
                         <FaLock className = "text-gray-400"/>
                         <input
                             type = "password"
+                            autoComplete='new-password'
                             name = "password"
                             placeholder = "Create your password"
                             onChange = {handleChange}
@@ -192,6 +191,7 @@ const SignupPage = () => {
                         <FaLock className = "text-gray-400"/>
                         <input
                             type = "password"
+                            autoComplete='nope'
                             name = "confirmPassword"
                             placeholder = "Confirm your password"
                             onChange = {handleChange}

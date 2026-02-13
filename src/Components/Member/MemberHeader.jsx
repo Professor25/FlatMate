@@ -46,13 +46,13 @@ export default function MemberHeader({ profile }) {
 
       {/* Right section */}
       <div className="flex items-center gap-4 text-sm">
-        <button onClick={toggleDarkMode} title="Toggle Dark Mode">
+        {/* <button onClick={toggleDarkMode} title="Toggle Dark Mode">
           {isDarkMode ? (
             <FaSun className="cursor-pointer text-yellow-400 hover:text-white" />
           ) : (
             <FaMoon className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-white" />
           )}
-        </button>
+        </button> */}
         <div className="relative">
           <FaBell className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-white" />
           <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-red-500" />
