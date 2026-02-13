@@ -99,9 +99,34 @@ const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
       const newRef = push(ref(db, "recentPayments"));
       await set(newRef, payment);
 
-      // update user's dues in users node to remaining due
+      // update user's dues and paid in users node to remaining due and increment paid
       if (uid) {
-        await update(ref(db, `users/${uid}`), { dues: Number(remainingDue) });
+        const paidSnap = await get(ref(db, `users/${uid}/paid`));
+        const currentPaid = Number(paidSnap.val() ?? 0);
+        const newPaid = Number((currentPaid + paid).toFixed(2));
+        await update(ref(db, `users/${uid}`), { dues: Number(remainingDue), paid: newPaid });
+      }
+
+      // Also update matching record in 'members' node (if present) so admin list reflects the change.
+      try {
+        const membersSnap = await get(ref(db, 'members'));
+        if (membersSnap.exists()) {
+          const membersObj = membersSnap.val();
+          const match = Object.entries(membersObj).find(([, m]) => {
+            if (!m) return false;
+            const emailMatch = profile?.email && m.email === profile.email;
+            const flatMatch = (profile?.flatNumber && m.flat === profile.flatNumber) || (profile?.flat && m.flat === profile.flat);
+            return emailMatch || flatMatch;
+          });
+          if (match) {
+            const [memberId, memberVal] = match;
+            const memberPaid = Number(memberVal.paid || 0);
+            const updatedMemberPaid = Number((memberPaid + paid).toFixed(2));
+            await update(ref(db, `members/${memberId}`), { dues: Number(remainingDue), paid: updatedMemberPaid });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to update members node after payment', err);
       }
 
       setLoading(false);

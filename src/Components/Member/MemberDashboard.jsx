@@ -149,7 +149,9 @@ const MemberDashboard = () => {
         };
     }, [config?.dueDateISO, config?.dueDate]);
 
-    const amountDueDisplay = dues > 0 ? dues : configTotal;
+    // If a dues field exists on the profile, show that (clamped to 0+).
+    // Only fall back to the maintenance config total when there's no dues record yet.
+    const amountDueDisplay = hasDuesRecord ? Math.max(0, dues) : configTotal;
 
     // Load society documents
     useEffect(() => {
