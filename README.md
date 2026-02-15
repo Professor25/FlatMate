@@ -2,6 +2,8 @@
 
 FlatMate is a modern React + Tailwind CSS web app that helps housing societies manage members, maintenance charges, payments, receipts, and monthly dues. It uses Firebase (Auth + Realtime Database) for authentication and data storage and runs on Vite for a fast developer experience.
 
+**✨ Now with Razorpay Payment Gateway Integration!**
+
 ---
 
 ## ✨ Key Features
@@ -10,10 +12,15 @@ FlatMate is a modern React + Tailwind CSS web app that helps housing societies m
 - Member Management
   - Add members (writes under users/{uid})
   - Edit profile fields and status
-  - Receive Payment flow with printable receipt (no payment gateway needed)
+  - Receive Payment flow with printable receipt
   - Pending summary (count + total), Only Pending toggle, and CSV export
+- **💳 Online Payments via Razorpay**
+  - Integrated Razorpay payment gateway for secure online payments
+  - Support for UPI, Cards, Net Banking, and Wallets
+  - Automatic payment verification and receipt generation
+  - Backend API for secure order creation and verification
 - Payments & Receipts
-  - Record payments with method (UPI/Cash/Card/Bank/Manual Edit)
+  - Record payments with method (Online/Cash)
   - Instant printable receipt window and simple PDF download
   - Recent Payments page with search, method filter, date range, totals, and CSV export
 - Configuration
@@ -29,6 +36,8 @@ FlatMate is a modern React + Tailwind CSS web app that helps housing societies m
 - React 19, React Router 7, Vite 7
 - Tailwind CSS v4 with @tailwindcss/vite and @tailwindcss/postcss
 - Firebase Auth + Realtime Database
+- **Razorpay Payment Gateway** (backend + frontend integration)
+- Express.js backend for payment processing
 - Framer Motion (micro-interactions)
 - jsPDF (simple PDF receipts) + in-browser print window receipts
 
@@ -55,8 +64,7 @@ npm install
 2) Configure environment variables
 
 - Create a .env or .env.local file at the project root using .env.example as a guide:
-
-```env
+# Firebase Configuration
 VITE_FIREBASE_API_KEY=your_api_key
 VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
 VITE_FIREBASE_DATABASE_URL=https://your_project-default-rtdb.asia-southeast1.firebasedatabase.app
@@ -65,9 +73,30 @@ VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_MEASUREMENT_ID=
+
+# Razorpay Configuration (see RAZORPAY_SETUP.md for details)
+RAZORPAY_KEY_ID=rzp_test_xxxxxxxx
+RAZORPAY_KEY_SECRET=your_secret_key
+VITE_RAZORPAY_KEY_ID=rzp_test_xxxxxxxx
+PORT=5000
+VITE_API_BASE_URL=http://localhost:5000
 ```
 
+**📝 For detailed Razorpay setup instructions, see [QUICKSTART.md](QUICKSTART.md)**
+
 3) Run the dev server
+
+For full-stack mode (frontend + backend):
+```bash
+npm run dev:full
+```
+
+Or run separately:
+```bash
+# Terminal 1 - Backend
+npm run server
+
+# Terminal 2 - Frontendthe dev server
 
 ```bash
 npm run dev
@@ -122,6 +151,30 @@ Data model (Realtime Database)
   - member, flat, email, amount, method, date (YYYY-MM-DD), receipt, createdAt
 - config/maintenance
   - maintenanceCharge, waterCharge, sinkingFund, lateFee, dueDate
+
+**Razorpay Integration**
+
+The app now includes a full-stack Razorpay payment gateway integration:
+
+- **Backend Server** (`server/index.js`)
+  - Express API for creating orders and verifying payments
+  - Secure signature verification using Razorpay Key Secret
+  - Endpoints: `/api/payment/create-order`, `/api/payment/verify`, `/api/payment/:paymentId`
+  
+- **Frontend Integration** (`src/utils/razorpay.js`)
+  - Dynamic Razorpay SDK loading
+  - Complete payment flow: order creation → checkout → verification
+  - Support for UPI, Cards, Net Banking, and Wallets
+  
+- **PayModal Component** (`src/Components/Member/PayModal.jsx`)
+  - Integrated Razorpay checkout modal
+  - Options: Online Payment (Razorpay) or Cash
+  - Automatic receipt generation and database updates
+
+For setup instructions, see:
+- **Quick Start**: [QUICKSTART.md](QUICKSTART.md) - Get up and running in 5 minutes
+- **Detailed Guide**: [RAZORPAY_SETUP.md](RAZORPAY_SETUP.md) - Complete documentation
+- **Test Integration**: Run `.\test-razorpay.ps1` to verify setup
 
 ---
 

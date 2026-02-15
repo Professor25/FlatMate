@@ -1,0 +1,15 @@
+// server/package.json - Optional if you want to run the server independently
+{
+  "name": "flatmate-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Backend server for FlatMate Razorpay integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": ["razorpay", "payment", "express"],
+  "author": "",
+  "license": "MIT"
+}

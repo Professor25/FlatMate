@@ -1,20 +1,21 @@
 import {
-    FaFileInvoice,
+    FaQuestionCircle,
     FaReceipt,
     FaBell,
     FaFileUpload,
-    FaExclamationTriangle,
 } from "react-icons/fa";
 import { motion as Motion } from "framer-motion";
 import { useState } from "react";
 import NoticeUploadModal from "./NoticeUploadModal";
 import SendRemindersModal from "./SendRemindersModal";
+import ViewQueriesModal from "./ViewQueriesModal";
+import CreateReceiptModal from "./CreateReceiptModal";
 import { useToast } from "../Toast/useToast";
 
 const quickActions = [
     {
-        label: "Generate Bills",
-        icon: <FaFileInvoice />,
+        label: "View Queries",
+        icon: <FaQuestionCircle />,
         color: "bg-blue-700 hover:bg-blue-800",
     },
     {
@@ -32,21 +33,20 @@ const quickActions = [
         icon: <FaFileUpload />,
         color: "bg-amber-700 hover:bg-amber-800",
     },
-    {
-        label: "View Queries",
-        icon: <FaExclamationTriangle />,
-        color: "bg-red-700 hover:bg-red-800",
-    },
 ];
 
 export default function QuickActions() {
     const { push } = useToast();
     const [uploadOpen, setUploadOpen] = useState(false);
     const [remindersOpen, setRemindersOpen] = useState(false);
+    const [queriesOpen, setQueriesOpen] = useState(false);
+    const [receiptOpen, setReceiptOpen] = useState(false);
     
     const onClick = (label) => {
         if (label === "Upload Notice") { setUploadOpen(true); return; }
         if (label === "Send Reminders") { setRemindersOpen(true); return; }
+        if (label === "View Queries") { setQueriesOpen(true); return; }
+        if (label === "Create Receipt") { setReceiptOpen(true); return; }
         push({ type: "info", title: label, description: "Action triggered." });
     };
     return (
@@ -70,6 +70,8 @@ export default function QuickActions() {
             </div>
             <NoticeUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
             <SendRemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} />
+            <ViewQueriesModal open={queriesOpen} onClose={() => setQueriesOpen(false)} />
+            <CreateReceiptModal open={receiptOpen} onClose={() => setReceiptOpen(false)} />
         </>
     );
 }

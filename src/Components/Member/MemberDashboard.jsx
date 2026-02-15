@@ -25,6 +25,7 @@ import { openReceiptPrintWindow } from "../../utils/receipt";
 import MemberHeader from "./MemberHeader";
 import Footer from "./Footer";
 import SupportChatModal from "./SupportChatModal";
+import ContactAdminModal from "./ContactAdminModal";
 
 const MemberDashboard = () => {
     const { push: pushToast } = useToast();
@@ -36,6 +37,7 @@ const MemberDashboard = () => {
     const [activeTab, setActiveTab] = useState('Dashboard');
     const [config, setConfig] = useState(null);
     const [chatOpen, setChatOpen] = useState(false);
+    const [contactAdminOpen, setContactAdminOpen] = useState(false);
     const [documents, setDocuments] = useState([]);
     const [notices, setNotices] = useState([]);
 
@@ -470,14 +472,7 @@ const MemberDashboard = () => {
                                                 <span className="text-sm">Download Receipts</span>
                                             </button>
                                             <button onClick={() => {
-                                                const email = (typeof config === 'object' && config && config.contactEmail) ? config.contactEmail : '';
-                                                if (email) {
-                                                    // Open Gmail compose with pre-filled recipient
-                                                    const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
-                                                    window.open(gmailComposeUrl, '_blank');
-                                                } else {
-                                                    pushToast({ type: 'info', title: 'Contact Admin', description: 'Admin email not configured yet.' });
-                                                }
+                                                setContactAdminOpen(true);
                                             }} className="h-20 rounded-md bg-amber-600 hover:bg-amber-700 text-white flex flex-col items-center justify-center gap-2">
                                                 <FaEnvelope />
                                                 <span className="text-sm">Contact Admin</span>
@@ -655,6 +650,12 @@ const MemberDashboard = () => {
                     onSuccess={(rec) => {
                         pushToast({ type: 'success', title: 'Payment recorded', description: `Receipt ${rec.receipt}` });
                     }}
+                />
+                <ContactAdminModal
+                    open={contactAdminOpen}
+                    onClose={() => setContactAdminOpen(false)}
+                    uid={uid}
+                    profile={profile}
                 />
             </Fragment>
         );

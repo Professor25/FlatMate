@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../../firebase';
+import { auth, db } from '../../firebase';
 import { signOut } from 'firebase/auth';
+import { ref, onValue, update } from 'firebase/database';
 import { useToast } from '../Toast/useToast';
 import { FaBuilding, FaSignOutAlt, FaMoon, FaSun, FaBell, FaUserCircle, FaTimes } from 'react-icons/fa';
 
@@ -10,11 +11,14 @@ export default function MemberHeader({ profile, notices = [] }) {
   const navigate = useNavigate();
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [readNotices, setReadNotices] = useState(() => {
     const saved = localStorage.getItem('readNotices');
     return saved ? JSON.parse(saved) : [];
   });
   const notificationRef = useRef(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('darkMode');
@@ -23,6 +27,51 @@ export default function MemberHeader({ profile, notices = [] }) {
     if (initial) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, []);
+
+  // Get current user ID
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        setCurrentUserId(user.uid);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch user notifications from Firebase
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const notificationsRef = ref(db, `userNotifications/${currentUserId}`);
+    const unsubscribe = onValue(notificationsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const notificationsList = Object.entries(data)
+          .map(([id, notif]) => ({ id, ...notif }))
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setNotifications(notificationsList);
+        setUnreadCount(notificationsList.filter(n => !n.read).length);
+        
+        // Show toast for new unread notifications (reminders and query replies)
+        const unreadImportant = notificationsList.filter(n => !n.read && (n.type === 'reminder' || n.type === 'query_reply'));
+        if (unreadImportant.length > 0) {
+          const latest = unreadImportant[0];
+          if (Date.now() - (latest.timestamp || 0) < 5000) { // Show toast only for very recent notifications
+            pushToast({
+              type: latest.type === 'query_reply' ? 'success' : 'info',
+              title: latest.title || 'New Notification',
+              description: latest.message || 'You have a new notification'
+            });
+          }
+        }
+      } else {
+        setNotifications([]);
+        setUnreadCount(0);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUserId]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -63,31 +112,45 @@ export default function MemberHeader({ profile, notices = [] }) {
     setShowNotifications(!showNotifications);
   };
 
-  const markAsRead = (noticeId) => {
-    if (!readNotices.includes(noticeId)) {
-      const updated = [...readNotices, noticeId];
-      setReadNotices(updated);
-      localStorage.setItem('readNotices', JSON.stringify(updated));
+  const markAsRead = async (notificationId) => {
+    if (!currentUserId) return;
+    
+    const notificationRef = ref(db, `userNotifications/${currentUserId}/${notificationId}`);
+    try {
+      await update(notificationRef, { read: true });
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
     }
   };
 
-  const markAllAsRead = () => {
-    const allIds = notices.map(n => n.id);
-    setReadNotices(allIds);
-    localStorage.setItem('readNotices', JSON.stringify(allIds));
-    pushToast({ type: 'success', title: 'All notifications marked as read' });
+  const markAllAsRead = async () => {
+    if (!currentUserId) return;
+    
+    try {
+      const updates = {};
+      notifications.forEach(n => {
+        if (!n.read) {
+          updates[`userNotifications/${currentUserId}/${n.id}/read`] = true;
+        }
+      });
+      
+      if (Object.keys(updates).length > 0) {
+        await update(ref(db), updates);
+        pushToast({ type: 'success', title: 'All notifications marked as read' });
+      }
+    } catch (error) {
+      console.error("Error marking all as read:", error);
+    }
   };
-
-  const unreadCount = notices.filter(n => !readNotices.includes(n.id)).length;
 
   const formatNoticeDate = (d) => {
     if (!d) return '';
     try {
       if (typeof d === 'number') {
-        return new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+        return new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       }
       const date = new Date(d);
-      if (!isNaN(date)) return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+      if (!isNaN(date)) return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     } catch {
       return String(d);
     }
@@ -153,27 +216,20 @@ export default function MemberHeader({ profile, notices = [] }) {
 
               {/* Notification List */}
               <div className="overflow-y-auto max-h-[360px]">
-                {notices.length === 0 ? (
+                {notifications.length === 0 ? (
                   <div className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
                     <FaBell className="mx-auto mb-2 text-2xl opacity-50" />
                     <p className="text-sm">No notifications</p>
                   </div>
                 ) : (
-                  notices.map((notice) => {
-                    const isUnread = !readNotices.includes(notice.id);
-                    const Wrapper = notice.url ? 'a' : 'div';
-                    const wrapperProps = notice.url ? {
-                      href: notice.url,
-                      target: "_blank",
-                      rel: "noreferrer"
-                    } : {};
+                  notifications.map((notification) => {
+                    const isUnread = !notification.read;
                     
                     return (
-                      <Wrapper
-                        key={notice.id}
-                        {...wrapperProps}
-                        onClick={() => markAsRead(notice.id)}
-                        className={`block px-3 py-2.5 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors ${
+                      <div
+                        key={notification.id}
+                        onClick={() => markAsRead(notification.id)}
+                        className={`block px-3 py-2.5 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer ${
                           isUnread ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                         }`}
                       >
@@ -181,37 +237,46 @@ export default function MemberHeader({ profile, notices = [] }) {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <h4 className={`text-xs font-medium ${isUnread ? 'text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
-                                {notice.title || 'Notice'}
+                                {notification.title || 'Notification'}
                               </h4>
                               {isUnread && (
                                 <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-blue-500"></span>
                               )}
                             </div>
                             <div className="flex items-center gap-1 mb-1">
-                              {notice.category && (
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded text-white ${
-                                  notice.category === 'emergency' ? 'bg-red-600' :
-                                  notice.category === 'maintenance' ? 'bg-blue-600' :
-                                  notice.category === 'events' ? 'bg-green-600' :
-                                  notice.category === 'meetings' ? 'bg-purple-600' :
-                                  'bg-gray-600'
-                                }`}>
-                                  {notice.category.charAt(0).toUpperCase() + notice.category.slice(1)}
-                                </span>
-                              )}
-                              {!notice.url && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-600 dark:text-gray-400">Text Only</span>
-                              )}
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded text-white ${
+                                notification.type === 'reminder' ? 'bg-red-600' :
+                                notification.type === 'payment' ? 'bg-green-600' :
+                                notification.type === 'query_reply' ? 'bg-purple-600' :
+                                notification.type === 'notice' ? 'bg-blue-600' :
+                                'bg-gray-600'
+                              }`}>
+                                {notification.type === 'reminder' ? 'Payment Reminder' :
+                                 notification.type === 'payment' ? 'Payment' :
+                                 notification.type === 'query_reply' ? 'Admin Reply' :
+                                 notification.type === 'notice' ? 'Notice' : 
+                                 'Info'}
+                              </span>
                             </div>
                             <p className="text-[11px] text-gray-600 dark:text-gray-400 line-clamp-2">
-                              {notice.content || notice.description || 'No content'}
+                              {notification.message || 'No message'}
                             </p>
+                            {notification.amount && (
+                              <p className="text-[11px] font-semibold text-red-600 dark:text-red-400 mt-1">
+                                Amount Due: ₹{Number(notification.amount).toLocaleString('en-IN')}
+                              </p>
+                            )}
+                            {notification.dueDate && (
+                              <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
+                                Due: {notification.dueDate}
+                              </p>
+                            )}
                             <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">
-                              {formatNoticeDate(notice.createdAt || notice.date)}
+                              {formatNoticeDate(notification.timestamp)}
                             </p>
                           </div>
                         </div>
-                      </Wrapper>
+                      </div>
                     );
                   })
                 )}

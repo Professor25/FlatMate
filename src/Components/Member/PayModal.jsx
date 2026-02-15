@@ -2,19 +2,11 @@ import { useEffect, useState } from "react";
 import { FaTimes } from "react-icons/fa";
 import { ref, push, set, update, get } from "firebase/database";
 import { db } from "../../firebase";
+import { processRazorpayPayment } from "../../utils/razorpay";
 
 const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
-  const [method, setMethod] = useState(null); // 'upi' | 'card' | 'cash'
+  const [method, setMethod] = useState(null); // 'razorpay' | 'cash'
   const [loading, setLoading] = useState(false);
-
-  // UPI
-  const [upiId, setUpiId] = useState("");
-
-  // Card
-  const [cardName, setCardName] = useState("");
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardExpiry, setCardExpiry] = useState("");
-  const [cardCVV, setCardCVV] = useState("");
 
   // compute total amount to pay (not editable by user)
   const amount = Number(dues) > 0
@@ -24,8 +16,6 @@ const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
   useEffect(() => {
     if (!open) {
       setMethod(null);
-      setUpiId("");
-      setCardName(""); setCardNumber(""); setCardExpiry(""); setCardCVV("");
       setLoading(false);
     }
   }, [open]);
@@ -33,24 +23,8 @@ const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
   const validate = () => {
     if (!method) return "Select a payment method.";
     if (!amount || amount <= 0) return "No amount due to pay.";
-    if (method === "upi") {
-      if (!upiId || !/^[\w.\-]{3,}@[\w]+$/.test(upiId.trim())) return "Enter a valid UPI ID (e.g. name@bank).";
-    }
-    if (method === "card") {
-      if (!cardName.trim()) return "Cardholder name is required.";
-      const num = cardNumber.replace(/\s+/g, "");
-      if (!/^\d{12,19}$/.test(num)) return "Enter a valid card number.";
-      if (!/^\d{2}\/\d{2}$/.test(cardExpiry)) return "Expiry must be MM/YY.";
-      if (!/^\d{3,4}$/.test(cardCVV)) return "Enter a valid CVV.";
-    }
     // cash needs no extra validation
     return null;
-  };
-
-  const maskCard = (num) => {
-    const s = (num || "").replace(/\s+/g, "");
-    if (s.length <= 4) return s;
-    return "**** **** **** " + s.slice(-4);
   };
 
   const handlePay = async () => {
@@ -59,8 +33,39 @@ const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
 
     setLoading(true);
     try {
+      let receiptId;
+      let paymentId = null;
+      let orderId = null;
       const now = Date.now();
-      const receiptId = `RCPT-${now}-${Math.floor(Math.random()*9000+1000)}`;
+
+      // Handle Razorpay payment
+      if (method === "razorpay") {
+        try {
+          const razorpayResult = await processRazorpayPayment({
+            amount: amount,
+            name: profile?.fullName || profile?.name || profile?.displayName || "Member",
+            email: profile?.email || "",
+            contact: profile?.phone || profile?.contact || "",
+            description: `Maintenance payment for Flat ${profile?.flatNumber || profile?.flat || ""}`,
+            notes: {
+              uid: uid,
+              flat: profile?.flatNumber || profile?.flat,
+              email: profile?.email,
+            },
+          });
+
+          receiptId = razorpayResult.receipt;
+          paymentId = razorpayResult.payment_id;
+          orderId = razorpayResult.order_id;
+        } catch (razorpayError) {
+          setLoading(false);
+          alert("Payment failed: " + (razorpayError?.message || "Unknown error"));
+          return;
+        }
+      } else {
+        // Cash payment
+        receiptId = `RCPT-${now}-${Math.floor(Math.random()*9000+1000)}`;
+      }
 
       // determine previous due
       const prevDue = Number(dues) > 0 ? Number(dues) : amount;
@@ -76,129 +81,142 @@ const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
         amount: Number(paid),
         method,
         methodDetails:
-          method === "upi"
-            ? { upi: upiId.trim() }
-            : method === "card"
-            ? { name: cardName.trim(), card: maskCard(cardNumber) }
+          method === "razorpay"
+            ? { 
+                payment_id: paymentId,
+                order_id: orderId,
+                gateway: "Razorpay"
+              }
             : { note: "Paid in cash" },
         receipt: receiptId,
         date: new Date().toLocaleDateString("en-IN"),
         createdAt: now,
         previousDue: Number(prevDue),
-        remainingDue: Number(remainingDue),
+        remainingDue,
+        status: "completed"
       };
 
-      // write recent payment
-      const newRef = push(ref(db, "recentPayments"));
-      await set(newRef, payment);
+      // Save payment to database
+      const paymentsRef = ref(db, "payments");
+      const newPaymentRef = push(paymentsRef);
+      await set(newPaymentRef, payment);
 
-      // update user's dues and paid in users node to remaining due and increment paid
-      if (uid) {
-        const paidSnap = await get(ref(db, `users/${uid}/paid`));
-        const currentPaid = Number(paidSnap.val() ?? 0);
-        const newPaid = Number((currentPaid + paid).toFixed(2));
-        await update(ref(db, `users/${uid}`), { dues: Number(remainingDue), paid: newPaid });
-      }
-
-      // Also update matching record in 'members' node (if present) so admin list reflects the change.
-      try {
-        const membersSnap = await get(ref(db, 'members'));
-        if (membersSnap.exists()) {
-          const membersObj = membersSnap.val();
-          const match = Object.entries(membersObj).find(([, m]) => {
-            if (!m) return false;
-            const emailMatch = profile?.email && m.email === profile.email;
-            const flatMatch = (profile?.flatNumber && m.flat === profile.flatNumber) || (profile?.flat && m.flat === profile.flat);
-            return emailMatch || flatMatch;
-          });
-          if (match) {
-            const [memberId, memberVal] = match;
-            const memberPaid = Number(memberVal.paid || 0);
-            const updatedMemberPaid = Number((memberPaid + paid).toFixed(2));
-            await update(ref(db, `members/${memberId}`), { dues: Number(remainingDue), paid: updatedMemberPaid });
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to update members node after payment', err);
-      }
+      // Update user's dues
+      const userRef = ref(db, `users/${uid}`);
+      await update(userRef, { 
+        dues: remainingDue,
+        lastPayment: now
+      });
 
       setLoading(false);
-      onSuccess && onSuccess(payment);
-      onClose && onClose();
-    } catch (e) {
+      alert(`Payment of ₹${paid.toFixed(2)} successful! Receipt: ${receiptId}`);
+      onSuccess?.();
+      onClose();
+    } catch (error) {
+      console.error("Payment error:", error);
       setLoading(false);
-      alert("Payment failed: " + (e?.message || e));
+      alert("Payment failed: " + (error?.message || "Unknown error"));
     }
   };
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg bg-white rounded shadow-lg overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="font-semibold">Make Payment — ₹{Number(amount).toLocaleString("en-IN")}</div>
-          <button onClick={onClose} className="text-gray-600"><FaTimes /></button>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-900">Pay Dues</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <FaTimes size={20} />
+          </button>
         </div>
-
-        <div className="p-4 space-y-4">
-          <div className="flex gap-2">
-            <button onClick={() => setMethod("upi")} className={`flex-1 p-2 rounded border ${method==="upi" ? "bg-blue-600 text-white" : "bg-white"}`}>UPI</button>
-            <button onClick={() => setMethod("card")} className={`flex-1 p-2 rounded border ${method==="card" ? "bg-blue-600 text-white" : "bg-white"}`}>Card</button>
-            <button onClick={() => setMethod("cash")} className={`flex-1 p-2 rounded border ${method==="cash" ? "bg-blue-600 text-white" : "bg-white"}`}>Cash</button>
+        
+        <div className="p-6 space-y-5">
+          {/* Payment Method Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMethod("razorpay")} 
+                className={`flex-1 p-3 rounded border font-medium transition-colors ${
+                  method==="razorpay" 
+                    ? "bg-blue-600 text-white border-blue-600" 
+                    : "bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                💳 Online Payment
+              </button>
+              <button 
+                onClick={() => setMethod("cash")} 
+                className={`flex-1 p-3 rounded border font-medium transition-colors ${
+                  method==="cash" 
+                    ? "bg-blue-600 text-white border-blue-600" 
+                    : "bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                💵 Cash
+              </button>
+            </div>
           </div>
 
           {/* Total Amount Due (Read-only) */}
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <div className="text-sm font-medium text-gray-600 mb-1">Total Amount Due</div>
-            <div className="text-3xl font-bold text-gray-900">₹{Number(amount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            <div className="text-xs text-gray-500 mt-1">This is your complete outstanding balance</div>
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-5">
+            <div className="text-sm font-medium text-blue-700 mb-1">Total Amount Due</div>
+            <div className="text-4xl font-bold text-blue-900 mb-1">
+              ₹{Number(amount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs text-blue-600">Complete outstanding balance</div>
           </div>
 
-          {method === "upi" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">UPI ID</label>
-              <input
-                value={upiId}
-                onChange={(e) => setUpiId(e.target.value)}
-                placeholder="example@bank"
-                className="w-full p-2 border rounded"
-              />
-              <div className="text-xs text-gray-500">After entering your UPI ID, click Pay to record the payment. (This UI records the payment; integrate a gateway for live UPI flow.)</div>
-            </div>
-          )}
-
-          {method === "card" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Cardholder Name</label>
-              <input value={cardName} onChange={(e) => setCardName(e.target.value)} className="w-full p-2 border rounded" />
-
-              <label className="text-sm font-medium">Card Number</label>
-              <input value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} placeholder="1234 5678 9012 3456" className="w-full p-2 border rounded" />
-
-              <div className="flex gap-2">
+          {method === "razorpay" && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">✅</div>
                 <div className="flex-1">
-                  <label className="text-sm font-medium">Expiry (MM/YY)</label>
-                  <input value={cardExpiry} onChange={(e) => setCardExpiry(e.target.value)} placeholder="MM/YY" className="w-full p-2 border rounded" />
-                </div>
-                <div className="w-32">
-                  <label className="text-sm font-medium">CVV</label>
-                  <input value={cardCVV} onChange={(e) => setCardCVV(e.target.value)} placeholder="123" className="w-full p-2 border rounded" />
+                  <div className="font-medium text-green-900 mb-1">Secure Online Payment</div>
+                  <div className="text-sm text-green-700 mb-2">
+                    Pay securely using UPI, Credit/Debit Cards, Net Banking, or Wallets via Razorpay.
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <span className="inline-flex items-center px-2 py-1 bg-white rounded text-xs font-medium text-gray-700">
+                      🔒 SSL Encrypted
+                    </span>
+                    <span className="inline-flex items-center px-2 py-1 bg-white rounded text-xs font-medium text-gray-700">
+                      ⚡ Instant Receipt
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {method === "cash" && (
-            <div className="text-sm text-gray-700">
-              Pay the amount in cash to the society office/treasurer and click Pay to record the transaction.
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">ℹ️</div>
+                <div className="flex-1">
+                  <div className="font-medium text-yellow-900 mb-1">Cash Payment</div>
+                  <div className="text-sm text-yellow-700">
+                    Please pay the amount in cash to the society office/treasurer. Click "Pay" after making the cash payment to record the transaction.
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2">
-            <button onClick={onClose} className="px-4 py-2 rounded border">Cancel</button>
-            <button onClick={handlePay} disabled={loading} className="px-4 py-2 rounded bg-blue-600 text-white">
-              {loading ? "Processing..." : `Pay ₹${Number(amount).toLocaleString("en-IN")}`}
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button 
+              onClick={onClose} 
+              className="px-5 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handlePay} 
+              disabled={loading} 
+              className="px-5 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {loading ? "Processing..." : method === "razorpay" ? "💳 Pay Now" : `Confirm Payment`}
             </button>
           </div>
         </div>

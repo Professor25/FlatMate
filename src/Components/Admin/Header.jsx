@@ -289,12 +289,16 @@ export default function Header() {
                                                 <div className={`mt-1 p-2 rounded-full ${
                                                     notification.type === 'payment' 
                                                         ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' 
+                                                        : notification.type === 'reminder_sent'
+                                                        ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
                                                         : notification.type === 'notice'
                                                         ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
                                                         : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
                                                 }`}>
                                                     {notification.type === 'payment' ? (
                                                         <FaMoneyBill className="text-sm" />
+                                                    ) : notification.type === 'reminder_sent' ? (
+                                                        <FaBell className="text-sm" />
                                                     ) : notification.type === 'notice' ? (
                                                         <FaBullhorn className="text-sm" />
                                                     ) : (

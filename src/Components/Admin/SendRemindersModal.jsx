@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
 import { FaTimes, FaEnvelope, FaCheckCircle } from "react-icons/fa";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, push, set, get } from "firebase/database";
 import { db } from "../../firebase";
 import { useToast } from "../Toast/useToast";
+import { getAuth } from "firebase/auth";
 
 const SendRemindersModal = ({ open, onClose }) => {
     const { push: pushToast } = useToast();
@@ -177,34 +178,58 @@ const SendRemindersModal = ({ open, onClose }) => {
 
         setSending(true);
 
-        // Simulate sending emails (in a real app, this would call an email service API)
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        try {
+            const auth = getAuth();
+            const currentUser = auth.currentUser;
+            const selectedMembersData = pendingMembers.filter((m) => selectedMembers.has(m.id));
+            const now = Date.now();
+            
+            // Create notifications for each selected member
+            for (const member of selectedMembersData) {
+                // Create notification for member
+                const memberNotificationRef = push(ref(db, `userNotifications/${member.id}`));
+                await set(memberNotificationRef, {
+                    type: "reminder",
+                    title: "Payment Reminder",
+                    message: `Please pay ₹${Number(member.amountDue).toLocaleString('en-IN')} for Flat ${member.flat} by ${getDueDate()}`,
+                    amount: member.amountDue,
+                    dueDate: getDueDate(),
+                    timestamp: now,
+                    read: false,
+                    from: "admin"
+                });
+            }
+            
+            // Create confirmation notification for admin
+            const memberNames = selectedMembersData.map(m => `${m.name} (${m.flat})`).join(', ');
+            const adminNotificationRef = push(ref(db, "adminNotifications"));
+            await set(adminNotificationRef, {
+                type: "reminder_sent",
+                title: "Reminders Sent",
+                message: `Payment reminders sent to: ${memberNames}`,
+                count: selectedMembers.size,
+                members: selectedMembersData.map(m => ({ name: m.name, flat: m.flat })),
+                timestamp: now,
+                read: false
+            });
 
-        const selectedMembersData = pendingMembers.filter((m) => selectedMembers.has(m.id));
-        
-        // In a real application, you would send emails here using an email service like:
-        // - Firebase Functions with Nodemailer
-        // - SendGrid API
-        // - AWS SES
-        // - Twilio SendGrid
-        
-        // For now, we'll just show a success message
-        console.log("Sending reminders to:", selectedMembersData.map(m => ({
-            name: m.name,
-            email: m.email,
-            flat: m.flat,
-            amount: m.amountDue,
-            dueDate: getDueDate()
-        })));
-
-        setSending(false);
-        pushToast({
-            type: "success",
-            title: "Reminders Sent",
-            description: `Payment reminders sent to ${selectedMembers.size} member${selectedMembers.size > 1 ? "s" : ""}.`,
-        });
-        setSelectedMembers(new Set());
-        onClose();
+            setSending(false);
+            pushToast({
+                type: "success",
+                title: "Reminders Sent",
+                description: `Payment reminders sent to ${selectedMembers.size} member${selectedMembers.size > 1 ? "s" : ""}.`,
+            });
+            setSelectedMembers(new Set());
+            onClose();
+        } catch (error) {
+            console.error("Error sending reminders:", error);
+            setSending(false);
+            pushToast({
+                type: "error",
+                title: "Error",
+                description: "Failed to send reminders. Please try again.",
+            });
+        }
     };
 
     if (!open) return null;
