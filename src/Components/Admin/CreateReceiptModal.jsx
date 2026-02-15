@@ -13,28 +13,105 @@ const CreateReceiptModal = ({ open, onClose }) => {
     const [paymentMethod, setPaymentMethod] = useState("cash");
     const [notes, setNotes] = useState("");
     const [loading, setLoading] = useState(false);
+    const [recentPayments, setRecentPayments] = useState([]);
+    const [config, setConfig] = useState(null);
 
-    // Load all members
+    // Load config
     useEffect(() => {
         if (!open) return;
+        const configRef = ref(db, "config/maintenance");
+        const unsubscribe = onValue(configRef, (snapshot) => {
+            setConfig(snapshot.val() || null);
+        });
+        return () => unsubscribe();
+    }, [open]);
+
+    // Load recent payments
+    useEffect(() => {
+        if (!open) return;
+        const paymentsRef = ref(db, 'recentPayments');
+        const unsubscribe = onValue(paymentsRef, (snapshot) => {
+            const val = snapshot.val() || {};
+            const list = Object.entries(val).map(([id, p]) => ({ id, ...p }));
+            setRecentPayments(list);
+        });
+        return () => unsubscribe();
+    }, [open]);
+
+    // Helper function to check if member has paid for current billing cycle
+    const hasPaidCurrentCycle = (member) => {
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth() + 1;
+
+        const memberPayments = recentPayments.filter(p => {
+            if (p.email && member.email) {
+                const emailsMatch = p.email.toLowerCase().trim() === member.email.toLowerCase().trim();
+                if (!emailsMatch) return false;
+            } else if (p.flat && member.flat) {
+                const flatsMatch = String(p.flat).trim() === String(member.flat).trim();
+                if (!flatsMatch) return false;
+            } else {
+                return false;
+            }
+
+            let paymentDate;
+            if (p.createdAt && typeof p.createdAt === 'number') {
+                paymentDate = new Date(p.createdAt);
+            } else if (p.date) {
+                const parts = String(p.date).split('/');
+                if (parts.length === 3) {
+                    paymentDate = new Date(`${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`);
+                } else {
+                    paymentDate = new Date(p.date);
+                }
+            } else {
+                return false;
+            }
+
+            if (isNaN(paymentDate.getTime())) return false;
+
+            return paymentDate.getFullYear() === currentYear && 
+                   paymentDate.getMonth() + 1 === currentMonth;
+        });
+
+        return memberPayments.length > 0;
+    };
+
+    // Load all members with calculated dues
+    useEffect(() => {
+        if (!open || !config) return;
 
         const usersRef = ref(db, "users");
         const unsubscribe = onValue(usersRef, (snapshot) => {
             const users = snapshot.val() || {};
             const membersList = Object.entries(users)
                 .filter(([id, user]) => user.role === "member")
-                .map(([id, user]) => ({
-                    id,
-                    name: user.fullName || user.name || user.displayName || "Unknown",
-                    flat: user.flatNumber || user.flat || "N/A",
-                    email: user.email || "",
-                    dues: user.dues || 0,
-                }));
+                .map(([id, user]) => {
+                    const memberData = {
+                        id,
+                        name: user.fullName || user.name || user.displayName || "Unknown",
+                        flat: user.flatNumber || user.flat || "N/A",
+                        email: user.email || "",
+                    };
+
+                    // Calculate dues based on whether they've paid this cycle
+                    if (hasPaidCurrentCycle(memberData)) {
+                        memberData.dues = 0;
+                    } else {
+                        const maintenance = Number(config.maintenanceCharge || 0);
+                        const water = Number(config.waterCharge || 0);
+                        const sinking = Number(config.sinkingFund || 0);
+                        memberData.dues = maintenance + water + sinking;
+                    }
+
+                    return memberData;
+                });
             setMembers(membersList);
         });
 
         return () => unsubscribe();
-    }, [open]);
+    }, [open, config, recentPayments]);
 
     // Reset form when modal closes
     useEffect(() => {
