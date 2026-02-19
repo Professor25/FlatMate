@@ -121,12 +121,23 @@ const PayModal = ({ open, onClose, uid, profile, dues = 0, onSuccess }) => {
 
       setLoading(false);
       alert(`Payment of ₹${paid.toFixed(2)} successful! Receipt: ${receiptId}`);
-      onSuccess?.();
+      onSuccess?.(payment);
       onClose();
     } catch (error) {
       console.error("Payment error:", error);
       setLoading(false);
-      alert("Payment failed: " + (error?.message || "Unknown error"));
+      let msg = error?.message || "Unknown error";
+
+      // Improve messaging for network / fetch failures so it's actionable for developers/users
+      const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+      if (
+        typeof msg === 'string' &&
+        (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Network request failed'))
+      ) {
+        msg = `Unable to reach payment server at ${apiBase}. Ensure the backend is running and accessible (check CORS and server URL). Try running the server and verify ${apiBase}/health`;
+      }
+
+      alert("Payment failed: " + msg);
     }
   };
 

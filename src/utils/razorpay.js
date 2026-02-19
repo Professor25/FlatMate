@@ -1,5 +1,30 @@
 // Razorpay API utilities
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+// Resolve API base URL:
+// 1. If `VITE_API_BASE_URL` is provided, use it (supports https://host:port or includes '/api').
+// 2. In dev, prefer a relative '/api' so Vite proxy (if configured) can forward requests.
+// 3. Else, fallback to 'http://localhost:5000/api'.
+const _envBase = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = (() => {
+  try {
+    if (_envBase && typeof _envBase === 'string' && _envBase.length > 0) {
+      const trimmed = _envBase.replace(/\/+$/, '');
+      return trimmed.endsWith('/api') ? trimmed : trimmed + '/api';
+    }
+
+    // Use dev-relative path when running the Vite dev server to avoid CORS issues
+    if (import.meta.env.DEV) return '/api';
+
+    return 'http://localhost:5000/api';
+  } catch (e) {
+    return import.meta.env.DEV ? '/api' : 'http://localhost:5000/api';
+  }
+})();
+
+// Debug: expose resolved API base for easier troubleshooting in browser console
+try {
+  // eslint-disable-next-line no-console
+  console.log('[razorpay] Resolved API_BASE_URL ->', API_BASE_URL);
+} catch (e) {}
 
 /**
  * Load Razorpay checkout script dynamically
@@ -32,7 +57,11 @@ export const loadRazorpayScript = () => {
  */
 export const createRazorpayOrder = async (orderData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
+    const url = `${API_BASE_URL}/payment/create-order`;
+    // Debug log the request URL
+    // eslint-disable-next-line no-console
+    console.log('[razorpay] createRazorpayOrder ->', url, 'payload:', orderData);
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -54,8 +83,11 @@ export const createRazorpayOrder = async (orderData) => {
 
     return data.order;
   } catch (error) {
-    console.error('Error creating Razorpay order:', error);
-    throw new Error(error.message || 'Failed to connect to payment server. Please ensure the backend server is running.');
+    // Log more details to help debug network errors
+    // eslint-disable-next-line no-console
+    console.error('[razorpay] Error creating Razorpay order:', error);
+    const msg = error?.message || error?.toString() || 'Failed to connect to payment server. Please ensure the backend server is running.';
+    throw new Error(msg);
   }
 };
 
@@ -69,7 +101,7 @@ export const createRazorpayOrder = async (orderData) => {
  */
 export const verifyRazorpayPayment = async (verificationData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/payment/verify`, {
+    const response = await fetch(`${API_BASE_URL}/payment/verify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -97,7 +129,7 @@ export const verifyRazorpayPayment = async (verificationData) => {
  */
 export const getPaymentDetails = async (paymentId) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/payment/${paymentId}`);
+    const response = await fetch(`${API_BASE_URL}/payment/${paymentId}`);
     const data = await response.json();
 
     if (!response.ok || !data.success) {

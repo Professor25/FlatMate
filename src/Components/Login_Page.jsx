@@ -1,7 +1,7 @@
 import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { useState, useEffect } from 'react';
-import { FaEnvelope, FaLock, FaSignInAlt, FaUser, FaUserShield, FaBuilding } from 'react-icons/fa';
+import { FaEnvelope, FaLock, FaSignInAlt, FaUser, FaUserShield, FaBuilding, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { motion as Motion } from "framer-motion";
 import { Link, useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
@@ -14,6 +14,7 @@ const LoginPage = () => {
     const [isDarkMode, setIsDarkMode] = useState(false);
     const [loading, setLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
     const switchTab = (tab) => {
         setActiveTab(tab);
@@ -165,7 +166,7 @@ const LoginPage = () => {
                 <div className="flex items-center bg-gray-700 mb-2 rounded-md px-2">
                     <FaLock className="text-gray-400" />
                     <input
-                        type="password"
+                        type={showPassword ? "text" : "password"}
                         name="password"
                         placeholder="Enter your password"
                         value={loginData.password}
@@ -173,6 +174,13 @@ const LoginPage = () => {
                         autoComplete="new-password"
                         className="w-full p-2 bg-transparent outline-none text-white placeholder-gray-400"
                     />
+                    <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="text-gray-400 hover:text-white transition-colors ml-2"
+                    >
+                        {showPassword ? <FaEyeSlash /> : <FaEye />}
+                    </button>
                 </div>
 
                 <div className="flex items-center justify-between text-sm text-gray-300 mb-4">

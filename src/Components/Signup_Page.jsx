@@ -2,7 +2,7 @@ import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
 import { ref, set, get, update } from "firebase/database";
 import { db } from '../firebase';
 import { useState, useEffect } from 'react';
-import { FaUser, FaUserShield, FaHome, FaEnvelope, FaLock, FaUserPlus, FaSignInAlt, FaBuilding } from 'react-icons/fa';
+import { FaUser, FaUserShield, FaHome, FaEnvelope, FaLock, FaUserPlus, FaSignInAlt, FaBuilding, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { motion as Motion } from "framer-motion"
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -25,6 +25,9 @@ const SignupPage = () => {
         confirmPassword: "",
         role: "admin" // role will be either "admin" or "member"
     });
+
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
     // Dark mode logic
 
@@ -189,7 +192,7 @@ const SignupPage = () => {
                     <div className = "flex items-center bg-gray-700 mb-4 rounded-md px-2">
                         <FaLock className = "text-gray-400"/>
                         <input
-                            type = "password"
+                            type = {showPassword ? "text" : "password"}
                             autoComplete='new-password'
                             name = "password"
                             placeholder = "Create your password"
@@ -197,12 +200,19 @@ const SignupPage = () => {
                             value = {formData.password}
                             className = "w-full p-2 bg-transparent outline-none text-white placeholder-gray-400"
                         />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="text-gray-400 hover:text-white transition-colors ml-2"
+                        >
+                            {showPassword ? <FaEyeSlash /> : <FaEye />}
+                        </button>
                     </div>
                     <label className = "block text-sm mb-1">Confirm Password</label>
                     <div className = "flex items-center bg-gray-700 mb-6 rounded-md px-2">
                         <FaLock className = "text-gray-400"/>
                         <input
-                            type = "password"
+                            type = {showConfirmPassword ? "text" : "password"}
                             autoComplete='nope'
                             name = "confirmPassword"
                             placeholder = "Confirm your password"
@@ -210,6 +220,13 @@ const SignupPage = () => {
                             value = {formData.confirmPassword}
                             className = "w-full p-2 bg-transparent outline-none text-white placeholder-gray-400"
                         />
+                        <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            className="text-gray-400 hover:text-white transition-colors ml-2"
+                        >
+                            {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
+                        </button>
                     </div>
 
                     <Motion.button
