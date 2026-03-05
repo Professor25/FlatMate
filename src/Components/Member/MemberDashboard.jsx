@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+
 import {
     FaWallet,
     FaReceipt,
@@ -21,7 +22,7 @@ import { auth, db } from "../../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { onValue, ref, query, orderByChild, equalTo, limitToLast } from "firebase/database";
 import PayModal from "./PayModal";
-import { openReceiptPrintWindow } from "../../utils/receipt";
+import { generateAndDownloadReceipt } from "../../utils/generateReceiptHtml";
 import MemberHeader from "./MemberHeader";
 import Footer from "./Footer";
 import SupportChatModal from "./SupportChatModal";
@@ -257,81 +258,15 @@ const MemberDashboard = () => {
 
     const handlePayNow = () => setPayOpen(true);
 
+
+
     const handleDownloadReceipt = (payment = null) => {
         const p = payment || lastPayment;
         if (!p) {
             pushToast({ title: "No receipt available", tone: "critical" });
             return;
         }
-
-        const name = p.name || profile?.name || profile?.displayName || "N/A";
-        const flat = profile?.flatNumber || profile?.flat || "N/A";
-        const receipt = p.receipt || `RCPT-${p.createdAt || Date.now()}`;
-        const paid = Number(p.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const method = (p.method || "N/A").toUpperCase();
-        const prev = Number(p.previousDue ?? profile?.dues ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const remaining = Number(p.remainingDue ?? profile?.dues ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const date = p.date || new Date().toLocaleDateString("en-IN");
-
-        const html = `<!doctype html>
-        <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>FlatMate Receipt - ${receipt}</title>
-          <style>
-            body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:24px}
-            .container{max-width:700px;margin:0 auto;border:1px solid #e6edf3;padding:20px;border-radius:6px}
-            .header{display:flex;align-items:center;gap:12px}
-            .logo svg{width:140px;height:auto;display:block}
-            h1{margin:0;font-size:20px}
-            .meta{color:#555;font-size:13px}
-            table{width:100%;margin-top:18px;border-collapse:collapse}
-            td{padding:10px;border-bottom:1px solid #f1f5f9}
-            td.label{width:40%;font-weight:600;color:#333}
-            .note{margin-top:18px;color:#555;font-size:13px}
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <div class="logo" aria-hidden="true">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" role="img" aria-label="FlatMate Logo">
-                  <rect rx="12" width="400" height="120" fill="#2563eb"/>
-                  <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="42" fill="#fff">FlatMate</text>
-                </svg>
-              </div>
-              <div>
-                <h1>Payment Receipt</h1>
-                <div class="meta">FlatMate — Society Maintenance</div>
-              </div>
-            </div>
-
-            <table>
-              <tr><td class="label">Receipt No:</td><td>${receipt}</td></tr>
-              <tr><td class="label">Name:</td><td>${name}</td></tr>
-              <tr><td class="label">Flat:</td><td>${flat}</td></tr>
-              <tr><td class="label">Date:</td><td>${date}</td></tr>
-              <tr><td class="label">Previous Due:</td><td>₹${prev}</td></tr>
-              <tr><td class="label">Amount Paid:</td><td>₹${paid}</td></tr>
-              <tr><td class="label">Payment Method:</td><td>${method}</td></tr>
-              <tr><td class="label">Remaining Due:</td><td>₹${remaining}</td></tr>
-            </table>
-
-            <p class="note">This is a system generated receipt from FlatMate.</p>
-          </div>
-        </body>
-        </html>`;
-
-        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `FlatMate_receipt_${receipt}.html`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        // revoke after a short delay to ensure download started
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        generateAndDownloadReceipt(p, profile);
     };
 
         //
@@ -430,12 +365,13 @@ const MemberDashboard = () => {
                                                         <th className="p-2">Amount</th>
                                                         <th className="p-2">Status</th>
                                                         <th className="p-2">Receipt</th>
+                                                        <th className="p-2">Download</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="text-gray-100">
                                                     {payments.length === 0 ? (
                                                         <tr>
-                                                            <td colSpan={4} className="p-4 text-center text-gray-400">No payments yet</td>
+                                                            <td colSpan={5} className="p-4 text-center text-gray-400">No payments yet</td>
                                                         </tr>
                                                     ) : (
                                                         payments.map((p) => (
@@ -444,6 +380,12 @@ const MemberDashboard = () => {
                                                                 <td className="p-2">{formatCurrency(p.amount)}</td>
                                                                 <td className="p-2"><span className="px-2 py-1 text-xs rounded-full font-semibold bg-green-600">Paid</span></td>
                                                                 <td className="p-2 text-gray-200">{p.receipt}</td>
+                                                                <td className="p-2">
+                                                                    <button onClick={() => handleDownloadReceipt(p)} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-purple-700 hover:bg-purple-800 text-white text-xs">
+                                                                        <FaDownload />
+                                                                        Download
+                                                                    </button>
+                                                                </td>
                                                             </tr>
                                                         ))
                                                     )}
@@ -467,7 +409,15 @@ const MemberDashboard = () => {
                                                 <FaCreditCard />
                                                 <span className="text-sm">Make Payment</span>
                                             </button>
-                                            <button onClick={handleDownloadReceipt} className="h-20 rounded-md bg-purple-700 hover:bg-purple-800 text-white flex flex-col items-center justify-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    // Find the most recent payment with amount > 0
+                                                    const valid = payments.slice().reverse().find(p => Number(p.amount) > 0 && (p.method || (p.methodDetails && (p.methodDetails.gateway || p.methodDetails.note))));
+                                                    if (valid) handleDownloadReceipt(valid);
+                                                    else pushToast({ title: "No valid payment found", tone: "critical" });
+                                                }}
+                                                className="h-20 rounded-md bg-purple-700 hover:bg-purple-800 text-white flex flex-col items-center justify-center gap-2"
+                                            >
                                                 <FaDownload />
                                                 <span className="text-sm">Download Receipts</span>
                                             </button>

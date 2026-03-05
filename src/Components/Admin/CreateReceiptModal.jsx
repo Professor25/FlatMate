@@ -3,6 +3,7 @@ import { FaTimes, FaReceipt, FaSearch } from "react-icons/fa";
 import { ref, onValue, push, set, update, get } from "firebase/database";
 import { db } from "../../firebase";
 import { useToast } from "../Toast/useToast";
+import { generateAndDownloadReceipt } from "../../utils/generateReceiptHtml";
 
 const CreateReceiptModal = ({ open, onClose }) => {
     const { push: pushToast } = useToast();
@@ -130,96 +131,21 @@ const CreateReceiptModal = ({ open, onClose }) => {
         m.email.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const handleCreateReceipt = async () => {
+    // Download receipt for selected member's latest payment (no DB update)
+    const handleDownloadReceipt = () => {
         if (!selectedMember) {
             pushToast({ type: "warning", title: "No Member Selected", description: "Please select a member." });
             return;
         }
-
-        const amountNum = Number(amount);
-        if (!amount || amountNum <= 0) {
-            pushToast({ type: "warning", title: "Invalid Amount", description: "Please enter a valid amount." });
+        // Find latest payment for this member
+        const latestPayment = recentPayments
+            .filter(p => (p.email && selectedMember.email && p.email.toLowerCase().trim() === selectedMember.email.toLowerCase().trim()) && Number(p.amount) > 0)
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+        if (!latestPayment) {
+            pushToast({ type: "warning", title: "No Payment Found", description: "No payment found for this member." });
             return;
         }
-
-        setLoading(true);
-
-        try {
-            const now = Date.now();
-            const receiptId = `RCPT-${now}-${Math.floor(Math.random() * 9000 + 1000)}`;
-
-            // Create payment record
-            const payment = {
-                uid: selectedMember.id,
-                email: selectedMember.email,
-                name: selectedMember.name,
-                member: selectedMember.name,
-                flat: selectedMember.flat,
-                amount: amountNum,
-                method: paymentMethod,
-                methodDetails: 
-                    paymentMethod === "cash" ? { note: notes || "Paid in cash" } :
-                    paymentMethod === "upi" ? { note: notes || "Paid via UPI" } :
-                    paymentMethod === "card" ? { note: notes || "Paid via Card" } :
-                    paymentMethod === "bank_transfer" ? { note: notes || "Bank Transfer" } :
-                    { note: notes || "Payment received" },
-                receipt: receiptId,
-                date: new Date().toLocaleDateString("en-IN"),
-                createdAt: now,
-                previousDue: Number(selectedMember.dues || 0),
-                remainingDue: Math.max(0, Number(selectedMember.dues || 0) - amountNum),
-                status: "completed",
-                createdBy: "admin"
-            };
-
-            // Save to recentPayments
-            const paymentsRef = ref(db, "recentPayments");
-            const newPaymentRef = push(paymentsRef);
-            await set(newPaymentRef, payment);
-
-            // Update user's dues and paid amount
-            const userRef = ref(db, `users/${selectedMember.id}`);
-            const userSnapshot = await get(userRef);
-            const userData = userSnapshot.val() || {};
-            
-            const newDues = Math.max(0, Number(userData.dues || 0) - amountNum);
-            const newPaid = Number(userData.paid || 0) + amountNum;
-
-            await update(userRef, {
-                dues: newDues,
-                paid: newPaid,
-                lastPayment: now
-            });
-
-            // Create notification for admin
-            const adminNotificationRef = push(ref(db, "adminNotifications"));
-            await set(adminNotificationRef, {
-                type: "payment",
-                title: "Manual Receipt Created",
-                message: `Receipt ${receiptId} created for ${selectedMember.name} (${selectedMember.flat}) - ₹${amountNum.toLocaleString('en-IN')}`,
-                timestamp: now,
-                read: false,
-                amount: amountNum,
-                memberName: selectedMember.name,
-                flat: selectedMember.flat
-            });
-
-            setLoading(false);
-            pushToast({
-                type: "success",
-                title: "Receipt Created",
-                description: `Receipt ${receiptId} created successfully for ${selectedMember.name}`,
-            });
-            onClose();
-        } catch (error) {
-            console.error("Error creating receipt:", error);
-            setLoading(false);
-            pushToast({
-                type: "error",
-                title: "Error",
-                description: "Failed to create receipt. Please try again.",
-            });
-        }
+        generateAndDownloadReceipt(latestPayment, selectedMember);
     };
 
     if (!open) return null;
@@ -273,7 +199,11 @@ const CreateReceiptModal = ({ open, onClose }) => {
                                                 key={member.id}
                                                 onClick={() => {
                                                     setSelectedMember(member);
-                                                    setAmount(member.dues > 0 ? member.dues.toString() : "");
+                                                    // Find latest payment with amount > 0 for this member
+                                                    const latestPayment = recentPayments
+                                                        .filter(p => (p.email && member.email && p.email.toLowerCase().trim() === member.email.toLowerCase().trim()) && Number(p.amount) > 0)
+                                                        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+                                                    setAmount(latestPayment ? latestPayment.amount.toString() : "");
                                                 }}
                                                 className="w-full p-3 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition text-left"
                                             >
@@ -334,11 +264,11 @@ const CreateReceiptModal = ({ open, onClose }) => {
                                 <input
                                     type="number"
                                     value={amount}
-                                    onChange={(e) => setAmount(e.target.value)}
-                                    placeholder="Enter amount"
+                                    readOnly
+                                    placeholder="Auto-filled from latest payment"
                                     min="0"
                                     step="0.01"
-                                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
                                 />
                             </div>
 
@@ -407,12 +337,12 @@ const CreateReceiptModal = ({ open, onClose }) => {
                         Cancel
                     </button>
                     <button
-                        onClick={handleCreateReceipt}
-                        disabled={loading || !selectedMember}
-                        className="px-5 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        onClick={handleDownloadReceipt}
+                        disabled={!selectedMember}
+                        className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                         <FaReceipt />
-                        {loading ? "Creating..." : "Create Receipt"}
+                        Download Receipt
                     </button>
                 </div>
             </div>
